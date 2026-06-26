@@ -6,28 +6,27 @@
   vars:
     docker_image: "tawa123/scenario1-platform"
     docker_tag: "latest"
-    container_name: "scenario1-platform"
 
   tasks:
     - name: Update apt cache
-      apt: 
+      apt:
         update_cache: yes
 
     - name: Install system dependencies
       apt:
-        name: 
+        name:
           - apt-transport-https
           - ca-certificates
           - curl
           - software-properties-common
           - python3-pip
-        state: present  
+        state: present
 
     - name: Add Docker GPG key
       apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
-        
+
     - name: Get dpkg architecture
       command: dpkg --print-architecture
       register: dpkg_arch
@@ -39,31 +38,31 @@
         state: present
 
     - name: Install Docker
-      apt: 
+      apt:
         name: docker-ce
         state: present
         update_cache: yes
 
     - name: Install Docker Python SDK
-      pip: 
+      pip:
         name: docker
         state: present
 
     - name: Start and enable Docker
-      service: 
+      service:
         name: docker
         state: started
         enabled: yes
 
     - name: Install Nginx
-      apt: 
+      apt:
         name: nginx
         state: present
 
-    - name: Start and enable Nginx   
-      service: 
+    - name: Start and enable Nginx
+      service:
         name: nginx
-        state: started 
+        state: started
         enabled: yes
 
     - name: Pull Docker image
@@ -71,43 +70,44 @@
         name: "{{ docker_image }}:{{ docker_tag }}"
         source: pull
 
+    - name: Kill any container using port 5001
+      shell: docker ps -q --filter publish=5001 | xargs -r docker rm -f
+      ignore_errors: yes
+
     - name: Stop old container if running
       docker_container:
         name: "{{ env_name }}-app"
         state: absent
-      
-
+      ignore_errors: yes
 
     - name: Run Flask container
       docker_container:
-        name: "{{ env_name }}-app"     
-        image: "{{ docker_image }}:{{ docker_tag }}"  
+        name: "{{ env_name }}-app"
+        image: "{{ docker_image }}:{{ docker_tag }}"
         state: started
-        ports: 
+        ports:
           - "5001:5000"
         restart_policy: always
         env:
-          ENV_NAME: "{{ env_name }}" 
-
+          ENV_NAME: "{{ env_name }}"
 
     - name: Configure Nginx reverse proxy
-      copy: 
+      copy:
         dest: /etc/nginx/sites-available/app
         content: |
           server {
-             listen 80;
+              listen 80;
 
-             location / {
-                 proxy_pass http://localhost:5001;
-                 proxy_set_header Host $host;
-                 proxy_set_header X-Real-IP $remote_addr;
-                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
-             }
+              location / {
+                  proxy_pass http://localhost:5001;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
           }
 
     - name: Enable Nginx site
-      file: 
+      file:
         src: /etc/nginx/sites-available/app
         dest: /etc/nginx/sites-enabled/app
         state: link
@@ -134,11 +134,11 @@
         mode: '0755'
 
     - name: Create monitor log directories
-      file: 
-        path: /opt/scripts   
+      file:
+        path: "{{ item }}"
         state: directory
-        mode: '0755'  
-      loop: 
+        mode: '0755'
+      loop:
         - /var/log/monitor
         - /var/log/monitor/reports
 
@@ -189,5 +189,4 @@
 
     - name: Display health log
       debug:
-        msg: "{{ health_output.stdout_lines }}" 
-
+        msg: "{{ health_output.stdout_lines }}"
