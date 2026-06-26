@@ -1,0 +1,193 @@
+---
+- name: Deploy multi-environment web platform
+  hosts: all
+  become: true
+
+  vars:
+    docker_image: "tawa123/scenario1-platform"
+    docker_tag: "latest"
+    container_name: "scenario1-platform"
+
+  tasks:
+    - name: Update apt cache
+      apt: 
+        update_cache: yes
+
+    - name: Install system dependencies
+      apt:
+        name: 
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+        state: present  
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+        
+    - name: Get dpkg architecture
+      command: dpkg --print-architecture
+      register: dpkg_arch
+      changed_when: false
+
+    - name: Add Docker apt repository
+      apt_repository:
+        repo: "deb [arch={{ dpkg_arch.stdout }}] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker
+      apt: 
+        name: docker-ce
+        state: present
+        update_cache: yes
+
+    - name: Install Docker Python SDK
+      pip: 
+        name: docker
+        state: present
+
+    - name: Start and enable Docker
+      service: 
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install Nginx
+      apt: 
+        name: nginx
+        state: present
+
+    - name: Start and enable Nginx   
+      service: 
+        name: nginx
+        state: started 
+        enabled: yes
+
+    - name: Pull Docker image
+      docker_image:
+        name: "{{ docker_image }}:{{ docker_tag }}"
+        source: pull
+
+    - name: Stop old container if running
+      docker_container:
+        name: "{{ env_name }}-app"
+        state: absent
+      
+
+
+    - name: Run Flask container
+      docker_container:
+        name: "{{ env_name }}-app"     
+        image: "{{ docker_image }}:{{ docker_tag }}"  
+        state: started
+        ports: 
+          - "5001:5000"
+        restart_policy: always
+        env:
+          ENV_NAME: "{{ env_name }}" 
+
+
+    - name: Configure Nginx reverse proxy
+      copy: 
+        dest: /etc/nginx/sites-available/app
+        content: |
+          server {
+             listen 80;
+
+             location / {
+                 proxy_pass http://localhost:5001;
+                 proxy_set_header Host $host;
+                 proxy_set_header X-Real-IP $remote_addr;
+                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+             }
+          }
+
+    - name: Enable Nginx site
+      file: 
+        src: /etc/nginx/sites-available/app
+        dest: /etc/nginx/sites-enabled/app
+        state: link
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
+
+    - name: Verify app is responding
+      uri:
+        url: http://localhost
+        status_code: 200
+
+    - name: Create /opt/scripts directory
+      file:
+        path: /opt/scripts
+        state: directory
+        mode: '0755'
+
+    - name: Create monitor log directories
+      file: 
+        path: /opt/scripts   
+        state: directory
+        mode: '0755'  
+      loop: 
+        - /var/log/monitor
+        - /var/log/monitor/reports
+
+    - name: Deploy auto-recovery script
+      copy:
+        src: ../scripts/auto-recovery.sh
+        dest: /opt/scripts/auto-recovery.sh
+        mode: '0755'
+
+    - name: Deploy alert checker script
+      copy:
+        src: ../scripts/alert-checker.sh
+        dest: /opt/scripts/alert-checker.sh
+        mode: '0755'
+
+    - name: Deploy daily report script
+      copy:
+        src: ../scripts/daily-report.sh
+        dest: /opt/scripts/daily-report.sh
+        mode: '0755'
+
+    - name: Schedule auto-recovery every minute
+      cron:
+        name: "auto recovery"
+        minute: "*"
+        job: "ENV_NAME={{ env_name }} /opt/scripts/auto-recovery.sh"
+
+    - name: Schedule alert checker every 5 minutes
+      cron:
+        name: "alert checker"
+        minute: "*/5"
+        job: "ENV_NAME={{ env_name }} /opt/scripts/alert-checker.sh"
+
+    - name: Schedule daily report at midnight
+      cron:
+        name: "daily report"
+        minute: "0"
+        hour: "0"
+        job: "ENV_NAME={{ env_name }} /opt/scripts/daily-report.sh"
+
+    - name: Run auto-recovery once to verify
+      command: bash -c "ENV_NAME={{ env_name }} /opt/scripts/auto-recovery.sh"
+      become: true
+
+    - name: Show health log
+      command: cat /var/log/monitor/health.log
+      register: health_output
+
+    - name: Display health log
+      debug:
+        msg: "{{ health_output.stdout_lines }}" 
+
