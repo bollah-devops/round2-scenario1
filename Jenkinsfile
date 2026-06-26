@@ -3,7 +3,6 @@ pipeline {
 
     environment {
         PATH = "/usr/local/bin:/opt/homebrew/bin:${env.PATH}"
-        
     }
 
     stages {
@@ -31,31 +30,28 @@ pipeline {
             }
         }
 
-         stage('Deploy to staging') {
+        stage('Deploy to staging') {
             steps {
                 sh '''
                     cd ansible
-                    ansible-playbook -i inventory-staging.ini playbook.yml -e env_name=staging
+                    ansible-playbook -i inventory.ini playbook.yml -e "env_name=staging"
                 '''
             }
         }
-    }
-
 
         stage('Deploy to production') {
             steps {
                 sh '''
                     cd ansible
-                    ansible-playbook -i inventory-production.ini playbook.yml -e env_name=production
+                    ansible-playbook -i inventory.ini playbook.yml -e "env_name=production"
                 '''
             }
         }
     }
 
-
-post {
+    post {
         success {
-            echo "Pipeline succeeded - deployed to EKS staging and production"
+            echo "Pipeline succeeded - deployed to staging and production"
         }
         failure {
             echo "Pipeline failed - check logs above"
