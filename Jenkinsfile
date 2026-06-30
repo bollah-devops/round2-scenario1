@@ -34,7 +34,7 @@ pipeline {
             steps {
                 sh '''
                     cd ansible
-                    ansible-playbook -i inventory.ini playbook.yml -e "env_name=staging"
+                    ansible-playbook -i inventory.ini playbook.yml -e "env_name=staging" --limit staging
                 '''
             }
         }
@@ -43,7 +43,7 @@ pipeline {
             steps {
                 sh '''
                     cd ansible
-                    ansible-playbook -i inventory.ini playbook.yml -e "env_name=production"
+                    ansible-playbook -i inventory.ini playbook.yml -e "env_name=production" --limit production
                 '''
             }
         }
